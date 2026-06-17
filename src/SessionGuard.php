@@ -1,0 +1,126 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Hydra\Auth;
+
+use Hydra\Auth\Contracts\AuthenticatableInterface;
+use Hydra\Auth\Contracts\GuardInterface;
+use Hydra\Auth\Contracts\HasherInterface;
+use Hydra\Auth\Contracts\UserProviderInterface;
+use Hydra\Session\Contracts\SessionInterface;
+
+/**
+ * The session-backed {@see GuardInterface}: authentication state lives in the
+ * session as a single stored identifier.
+ *
+ * It coordinates the three collaborators a login needs without exposing any of
+ * them to controllers: the {@see SessionInterface} (where the id is kept across
+ * requests), the app's {@see UserProviderInterface} (turns an id or username
+ * back into a user), and the {@see HasherInterface} (verifies a password). The user is
+ * resolved at most once per request and cached, so repeated user()/check()
+ * calls don't re-hit the provider.
+ *
+ * Both login() and logout() regenerate the session id — a privilege change must
+ * not keep the pre-change session token (fixation defense), which is exactly
+ * what {@see SessionInterface::regenerate()} is for.
+ */
+final class SessionGuard implements GuardInterface
+{
+    /** Where the authenticated user's id lives in the session (framework-reserved). */
+    private const SESSION_KEY = '_auth_id';
+
+    /** Per-request cache of the resolved user; $resolved distinguishes "null" from "not looked up yet". */
+    private ?AuthenticatableInterface $cachedUser = null;
+    private bool $resolved = false;
+
+    /** A throwaway hash for the timing defense in attempt(), computed once on demand. */
+    private ?string $dummyHash = null;
+
+    public function __construct(
+        private readonly SessionInterface $session,
+        private readonly UserProviderInterface $provider,
+        private readonly HasherInterface $hasher,
+    ) {}
+
+    public function check(): bool
+    {
+        // Deliberately resolves the user rather than just checking the id: a
+        // session pointing at a since-deleted account is not authenticated.
+        return $this->user() !== null;
+    }
+
+    public function user(): ?AuthenticatableInterface
+    {
+        if ($this->resolved) {
+            return $this->cachedUser;
+        }
+
+        $this->resolved = true;
+
+        $id = $this->id();
+
+        return $this->cachedUser = $id === null ? null : $this->provider->byIdentifier($id);
+    }
+
+    public function id(): int|string|null
+    {
+        $id = $this->session->get(self::SESSION_KEY);
+
+        // The session surface is untyped; only a scalar id is a real login marker.
+        return is_int($id) || is_string($id) ? $id : null;
+    }
+
+    public function attempt(string $username, string $password): bool
+    {
+        $user = $this->provider->byUsername($username);
+        $hash = $user?->getAuthPassword() ?? '';
+
+        // A missing user OR a user with no usable password must cost the same as
+        // a genuine verify: otherwise response timing distinguishes "no such
+        // account" and "account exists but is passwordless/disabled" from a real
+        // wrong-password attempt. Route both through a throwaway verify. (The
+        // dummy is hashed at the configured cost while a stored hash carries its
+        // own embedded cost, so the equalisation is close but not exact — the
+        // standard, accepted approximation.)
+        if ($hash === '') {
+            $this->hasher->verify($password, $this->dummyHash());
+
+            return false;
+        }
+
+        if (!$this->hasher->verify($password, $hash)) {
+            return false;
+        }
+
+        $this->login($user);
+
+        return true;
+    }
+
+    public function login(AuthenticatableInterface $user): void
+    {
+        // Rotate the id first so the authenticated session can never be the one a
+        // pre-login token referred to; regenerate() carries the data over.
+        $this->session->regenerate();
+        $this->session->set(self::SESSION_KEY, $user->getAuthIdentifier());
+
+        // Prime the cache: user()/check() later this request need no provider hit.
+        $this->cachedUser = $user;
+        $this->resolved = true;
+    }
+
+    public function logout(): void
+    {
+        $this->session->remove(self::SESSION_KEY);
+        $this->session->regenerate();
+
+        $this->cachedUser = null;
+        $this->resolved = true;
+    }
+
+    private function dummyHash(): string
+    {
+        return $this->dummyHash ??= $this->hasher->hash('hydra/auth timing defense');
+    }
+}
