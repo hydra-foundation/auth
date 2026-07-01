@@ -7,10 +7,15 @@ namespace Hydra\Auth\Tests\Unit;
 use Hydra\Auth\Contracts\AuthenticatableInterface;
 use Hydra\Auth\AuthConfig;
 use Hydra\Auth\NativeHasher;
+use Hydra\Auth\Events\Attempting;
+use Hydra\Auth\Events\LoggedIn;
+use Hydra\Auth\Events\LoggedOut;
+use Hydra\Auth\Events\LoginFailed;
 use Hydra\Auth\SessionGuard;
 use Hydra\Auth\Contracts\UserProviderInterface;
 use Hydra\Session\Stores\ArraySessionStore;
 use PHPUnit\Framework\TestCase;
+use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
  * The guard is driven against the REAL collaborators — the in-memory
@@ -38,6 +43,11 @@ final class SessionGuardTest extends TestCase
     private function guard(?ArraySessionStore $session = null): SessionGuard
     {
         return new SessionGuard($session ?? $this->session, $this->provider, $this->hasher);
+    }
+
+    private function guardWithEvents(RecordingDispatcher $events): SessionGuard
+    {
+        return new SessionGuard($this->session, $this->provider, $this->hasher, $events);
     }
 
     public function test_starts_unauthenticated(): void
@@ -198,9 +208,124 @@ final class SessionGuardTest extends TestCase
         $this->assertSame(0, $this->provider->byIdentifierCalls);
     }
 
+    public function test_no_dispatcher_means_no_events_and_unchanged_behaviour(): void
+    {
+        // The default guard() has no dispatcher: this is just a restatement that
+        // the happy path still works with events entirely absent — the other
+        // dozen tests above all run on this dispatcher-less guard.
+        $guard = $this->guard();
+
+        $this->assertTrue($guard->attempt('ada', self::PASSWORD));
+        $this->assertTrue($guard->check());
+    }
+
+    public function test_attempt_dispatches_attempting_then_logged_in_on_success(): void
+    {
+        $events = new RecordingDispatcher;
+
+        $this->assertTrue($this->guardWithEvents($events)->attempt('ada', self::PASSWORD));
+
+        // Attempting fires before the lookup, LoggedIn after the session is set.
+        $this->assertSame([Attempting::class, LoggedIn::class], $events->types());
+        $this->assertSame('ada', $events->first(Attempting::class)->username);
+        $this->assertSame(1, $events->first(LoggedIn::class)->user->getAuthIdentifier());
+    }
+
+    public function test_attempt_dispatches_attempting_then_login_failed_on_wrong_password(): void
+    {
+        $events = new RecordingDispatcher;
+
+        $this->assertFalse($this->guardWithEvents($events)->attempt('ada', 'wrong'));
+
+        $this->assertSame([Attempting::class, LoginFailed::class], $events->types());
+        $this->assertSame('ada', $events->first(LoginFailed::class)->username);
+    }
+
+    public function test_attempt_dispatches_login_failed_for_unknown_user(): void
+    {
+        $events = new RecordingDispatcher;
+
+        $this->assertFalse($this->guardWithEvents($events)->attempt('nobody', self::PASSWORD));
+
+        // A missing user is a failure like any other — same event, same shape, so
+        // a listener can't tell "no such account" from "wrong password".
+        $this->assertSame([Attempting::class, LoginFailed::class], $events->types());
+        $this->assertSame('nobody', $events->first(LoginFailed::class)->username);
+    }
+
+    public function test_direct_login_dispatches_logged_in(): void
+    {
+        $events = new RecordingDispatcher;
+
+        $this->guardWithEvents($events)->login($this->provider->byUsername('ada'));
+
+        $this->assertSame([LoggedIn::class], $events->types());
+        $this->assertSame(1, $events->first(LoggedIn::class)->user->getAuthIdentifier());
+    }
+
+    public function test_logout_dispatches_logged_out_with_the_prior_id(): void
+    {
+        $events = new RecordingDispatcher;
+        $guard = $this->guardWithEvents($events);
+        $guard->login($this->provider->byUsername('ada'));
+        $events->reset();
+
+        $guard->logout();
+
+        // The id is captured before the marker is cleared, so LoggedOut still
+        // knows who logged out.
+        $this->assertSame([LoggedOut::class], $events->types());
+        $this->assertSame(1, $events->first(LoggedOut::class)->userId);
+    }
+
     private function userName(?AuthenticatableInterface $user): ?string
     {
         return $user instanceof FakeUser ? $user->username : null;
+    }
+}
+
+/**
+ * A spy PSR-14 dispatcher: records every event it is handed, in order, and hands
+ * it straight back per the interface contract. No listeners — the guard's job is
+ * only to dispatch, and that is all this asserts.
+ */
+final class RecordingDispatcher implements EventDispatcherInterface
+{
+    /** @var list<object> */
+    private array $events = [];
+
+    public function dispatch(object $event): object
+    {
+        $this->events[] = $event;
+
+        return $event;
+    }
+
+    public function reset(): void
+    {
+        $this->events = [];
+    }
+
+    /** @return list<class-string> */
+    public function types(): array
+    {
+        return array_map('get_class', $this->events);
+    }
+
+    /**
+     * @template T of object
+     * @param class-string<T> $type
+     * @return T
+     */
+    public function first(string $type): object
+    {
+        foreach ($this->events as $event) {
+            if ($event instanceof $type) {
+                return $event;
+            }
+        }
+
+        throw new \RuntimeException("No {$type} was dispatched.");
     }
 }
 

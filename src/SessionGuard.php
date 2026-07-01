@@ -8,7 +8,12 @@ use Hydra\Auth\Contracts\AuthenticatableInterface;
 use Hydra\Auth\Contracts\GuardInterface;
 use Hydra\Auth\Contracts\HasherInterface;
 use Hydra\Auth\Contracts\UserProviderInterface;
+use Hydra\Auth\Events\Attempting;
+use Hydra\Auth\Events\LoggedIn;
+use Hydra\Auth\Events\LoggedOut;
+use Hydra\Auth\Events\LoginFailed;
 use Hydra\Session\Contracts\SessionInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
  * The session-backed {@see GuardInterface}: authentication state lives in the
@@ -24,6 +29,12 @@ use Hydra\Session\Contracts\SessionInterface;
  * Both login() and logout() regenerate the session id — a privilege change must
  * not keep the pre-change session token (fixation defense), which is exactly
  * what {@see SessionInterface::regenerate()} is for.
+ *
+ * The guard also announces its lifecycle through an OPTIONAL PSR-14 dispatcher
+ * ({@see Attempting}, {@see LoginFailed}, {@see LoggedIn}, {@see LoggedOut}). It
+ * is nullable and dispatched with {@see null}-safe calls, so auth stays fully
+ * usable with no event package bound — no dispatcher simply means no events. It
+ * depends only on the psr/event-dispatcher interface, never on hydra/event.
  */
 final class SessionGuard implements GuardInterface
 {
@@ -41,6 +52,7 @@ final class SessionGuard implements GuardInterface
         private readonly SessionInterface $session,
         private readonly UserProviderInterface $provider,
         private readonly HasherInterface $hasher,
+        private readonly ?EventDispatcherInterface $events = null,
     ) {}
 
     public function check(): bool
@@ -73,6 +85,9 @@ final class SessionGuard implements GuardInterface
 
     public function attempt(string $username, string $password): bool
     {
+        // Announced before any lookup, so a listener sees every attempt.
+        $this->events?->dispatch(new Attempting($username));
+
         $user = $this->provider->byUsername($username);
         $hash = $user?->getAuthPassword() ?? '';
 
@@ -85,11 +100,14 @@ final class SessionGuard implements GuardInterface
         // standard, accepted approximation.)
         if ($hash === '') {
             $this->hasher->verify($password, $this->dummyHash());
+            $this->events?->dispatch(new LoginFailed($username));
 
             return false;
         }
 
         if (!$this->hasher->verify($password, $hash)) {
+            $this->events?->dispatch(new LoginFailed($username));
+
             return false;
         }
 
@@ -108,15 +126,25 @@ final class SessionGuard implements GuardInterface
         // Prime the cache: user()/check() later this request need no provider hit.
         $this->cachedUser = $user;
         $this->resolved = true;
+
+        // Announced after the session and cache are set, so a listener that reads
+        // the guard already sees the logged-in state.
+        $this->events?->dispatch(new LoggedIn($user));
     }
 
     public function logout(): void
     {
+        // Capture who it was before the marker is cleared — afterwards the guard
+        // can no longer say. Null only when logout() ran with nobody logged in.
+        $id = $this->id();
+
         $this->session->remove(self::SESSION_KEY);
         $this->session->regenerate();
 
         $this->cachedUser = null;
         $this->resolved = true;
+
+        $this->events?->dispatch(new LoggedOut($id));
     }
 
     private function dummyHash(): string

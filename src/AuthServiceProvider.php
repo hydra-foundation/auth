@@ -11,6 +11,7 @@ use Hydra\Core\Contracts\ContainerInterface;
 use Hydra\Core\Environment;
 use Hydra\Core\Providers\ServiceProvider;
 use Hydra\Session\Contracts\SessionInterface;
+use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Wires the auth package into an application.
@@ -46,10 +47,19 @@ final class AuthServiceProvider extends ServiceProvider
         // user cache). It pulls the app-supplied UserProviderInterface — which
         // this provider intentionally does NOT bind.
         $container->singleton(GuardInterface::class, function () use ($container) {
+            // The event dispatcher is OPTIONAL: auth depends on the PSR interface,
+            // not on hydra/event. When an app has bound a dispatcher the guard
+            // announces its lifecycle through it; when it hasn't, the guard gets
+            // null and simply emits no events. Never a hard dependency.
+            $events = $container->bound(EventDispatcherInterface::class)
+                ? $container->get(EventDispatcherInterface::class)
+                : null;
+
             return new SessionGuard(
                 $container->get(SessionInterface::class),
                 $container->get(UserProviderInterface::class),
                 $container->get(HasherInterface::class),
+                $events,
             );
         });
 
