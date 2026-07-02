@@ -16,7 +16,7 @@ use Psr\EventDispatcher\EventDispatcherInterface;
 /**
  * Wires the auth package into an application.
  *
- * Like hydra/session (and unlike the stateless hydra/validation / hydra/csrf),
+ * Like hydrakit/session (and unlike the stateless hydrakit/validation / hydrakit/csrf),
  * auth binds interfaces to defaults and supplies config, so it earns a provider
  * and ships its own.
  *
@@ -48,7 +48,7 @@ final class AuthServiceProvider extends ServiceProvider
         // this provider intentionally does NOT bind.
         $container->singleton(GuardInterface::class, function () use ($container) {
             // The event dispatcher is OPTIONAL: auth depends on the PSR interface,
-            // not on hydra/event. When an app has bound a dispatcher the guard
+            // not on hydrakit/event. When an app has bound a dispatcher the guard
             // announces its lifecycle through it; when it hasn't, the guard gets
             // null and simply emits no events. Never a hard dependency.
             $events = $container->bound(EventDispatcherInterface::class)

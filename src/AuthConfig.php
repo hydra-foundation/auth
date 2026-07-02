@@ -18,7 +18,7 @@ use InvalidArgumentException;
  * hashing is fast, while production wants it as high as the hardware tolerates.
  * The internal session key the guard stores the user id under is NOT here: it is
  * a stable protocol constant on the guard, not a deployment setting (the same
- * call hydra/csrf made for its field/header names).
+ * call hydrakit/csrf made for its field/header names).
  */
 final readonly class AuthConfig
 {

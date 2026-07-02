@@ -10,7 +10,7 @@ use Throwable;
 /**
  * A request reached a guarded route without an authenticated user: HTTP 401.
  *
- * Like the http package's NotFoundException and hydra/csrf's
+ * Like the http package's NotFoundException and hydrakit/csrf's
  * TokenMismatchException, this is a typed HttpException so the app's outermost
  * ErrorHandlerMiddleware renders it — the guard middleware only throws. The
  * package stops at the 401; turning that into a redirect to a login page (a

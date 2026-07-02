@@ -34,7 +34,7 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  * ({@see Attempting}, {@see LoginFailed}, {@see LoggedIn}, {@see LoggedOut}). It
  * is nullable and dispatched with {@see null}-safe calls, so auth stays fully
  * usable with no event package bound — no dispatcher simply means no events. It
- * depends only on the psr/event-dispatcher interface, never on hydra/event.
+ * depends only on the psr/event-dispatcher interface, never on hydrakit/event.
  */
 final class SessionGuard implements GuardInterface
 {
@@ -149,6 +149,6 @@ final class SessionGuard implements GuardInterface
 
     private function dummyHash(): string
     {
-        return $this->dummyHash ??= $this->hasher->hash('hydra/auth timing defense');
+        return $this->dummyHash ??= $this->hasher->hash('hydrakit/auth timing defense');
     }
 }
