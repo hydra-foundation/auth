@@ -28,7 +28,9 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  *
  * Both login() and logout() regenerate the session id — a privilege change must
  * not keep the pre-change session token (fixation defense), which is exactly
- * what {@see SessionInterface::regenerate()} is for.
+ * what {@see SessionInterface::regenerate()} is for. logout() additionally
+ * clears ALL stored session data, not just the auth marker: everything written
+ * during an authenticated session belongs to the user who is leaving.
  *
  * The guard also announces its lifecycle through an OPTIONAL PSR-14 dispatcher
  * ({@see Attempting}, {@see LoginFailed}, {@see LoggedIn}, {@see LoggedOut}). It
@@ -138,7 +140,16 @@ final class SessionGuard implements GuardInterface
         // can no longer say. Null only when logout() ran with nobody logged in.
         $id = $this->id();
 
-        $this->session->remove(self::SESSION_KEY);
+        // Flush EVERYTHING, not just the auth marker: anything a controller
+        // stashed during the authenticated session (cart, profile fragments,
+        // CSRF token) belongs to the user who just left, and on a shared
+        // machine the next person at the browser would inherit it. OWASP says
+        // to invalidate the whole session on logout — session hygiene on a
+        // privilege drop. Flush BEFORE regenerating: regenerate() carries the
+        // current data over to the fresh id, so clearing first guarantees the
+        // post-logout session id is never associated with the old data, even
+        // transiently.
+        $this->session->clear();
         $this->session->regenerate();
 
         $this->cachedUser = null;

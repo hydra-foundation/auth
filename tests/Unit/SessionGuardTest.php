@@ -167,6 +167,51 @@ final class SessionGuardTest extends TestCase
         $this->assertNotSame($idBefore, $this->session->id());
     }
 
+    public function test_logout_flushes_all_session_data(): void
+    {
+        // Regression: logout once removed only the '_auth_id' marker, so data a
+        // controller stashed during the authenticated session (cart, CSRF token,
+        // profile fragments) survived into the next — possibly someone else's —
+        // session on a shared machine. OWASP: invalidate the WHOLE session.
+        $guard = $this->guard();
+        $guard->login($this->provider->byUsername('ada'));
+        $this->session->set('cart', ['sku-42']);
+        $this->session->set('csrf_token', 'secret');
+        $idBefore = $this->session->id();
+
+        $guard->logout();
+
+        // Every stored value is gone, not just the auth marker...
+        $this->assertSame([], $this->session->all());
+        $this->assertFalse($this->session->has('cart'));
+        $this->assertFalse($this->session->has('csrf_token'));
+
+        // ...while the existing logout guarantees still hold: fresh id, event
+        // behaviour covered below in the dispatcher tests.
+        $this->assertNotSame($idBefore, $this->session->id());
+        $this->assertFalse($guard->check());
+    }
+
+    public function test_logout_flush_still_regenerates_and_dispatches_logged_out(): void
+    {
+        // The full flush must not disturb the rest of logout: the id still
+        // rotates (fixation defense) and LoggedOut still carries the prior id,
+        // which is captured before the session is emptied.
+        $events = new RecordingDispatcher;
+        $guard = $this->guardWithEvents($events);
+        $guard->login($this->provider->byUsername('ada'));
+        $this->session->set('leftover', 'value');
+        $idBefore = $this->session->id();
+        $events->reset();
+
+        $guard->logout();
+
+        $this->assertSame([], $this->session->all());
+        $this->assertNotSame($idBefore, $this->session->id());
+        $this->assertSame([LoggedOut::class], $events->types());
+        $this->assertSame(1, $events->first(LoggedOut::class)->userId);
+    }
+
     public function test_authentication_persists_to_a_later_request(): void
     {
         // Log in on one guard, then resolve on a fresh guard over the SAME store
