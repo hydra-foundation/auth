@@ -36,6 +36,7 @@ final class SessionGuardTest extends TestCase
         $this->hasher = new NativeHasher(new AuthConfig(hashCost: 4));
         $this->provider = new ArrayUserProvider;
         $this->session = new ArraySessionStore;
+        $this->session->start();
         // One known user, password stored as a real hash.
         $this->provider->add('ada', new FakeUser(1, $this->hasher->hash(self::PASSWORD)));
     }
