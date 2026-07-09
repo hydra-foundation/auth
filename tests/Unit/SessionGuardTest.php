@@ -109,15 +109,15 @@ final class SessionGuardTest extends TestCase
 
         $this->assertFalse($guard->attempt('nobody', self::PASSWORD));
         $this->assertFalse($guard->check());
-        // The missing-user branch still runs a verify (timing defense), so the
-        // dummy hash was computed — but no login happened.
+        // The missing-user branch still burns one hash (timing defense) but no
+        // login happened; the provider was consulted exactly once.
         $this->assertSame(1, $this->provider->byUsernameCalls);
     }
 
     public function test_attempt_against_a_user_with_no_password_fails(): void
     {
         // A passwordless/disabled account must never authenticate, and (per the
-        // timing defense) is routed through the dummy verify just like a missing
+        // timing defense) is routed through the same one-hash burn as a missing
         // user rather than short-circuiting.
         $this->provider->add('ghost', new FakeUser(2, ''));
         $guard = $this->guard();
@@ -324,9 +324,120 @@ final class SessionGuardTest extends TestCase
         $this->assertSame(1, $events->first(LoggedOut::class)->userId);
     }
 
+    public function test_a_stale_marker_for_a_deleted_user_is_removed_from_the_session(): void
+    {
+        // A session claiming user 999 — an account the provider no longer knows
+        // (deleted since login). Without cleanup the marker lives forever,
+        // re-triggering a futile provider lookup on every request.
+        $this->session->set('_auth_id', 999);
+        $guard = $this->guard();
+
+        $this->assertNull($guard->user());
+        $this->assertFalse($guard->check());
+        $this->assertFalse($this->session->has('_auth_id'), 'the stale marker must be removed on a missed lookup');
+
+        // The NEXT request (a fresh guard over the same store) is a plain
+        // guest: no marker, so not even a provider lookup happens.
+        $this->provider->byIdentifierCalls = 0;
+        $next = $this->guard();
+        $this->assertNull($next->id());
+        $this->assertNull($next->user());
+        $this->assertSame(0, $this->provider->byIdentifierCalls);
+    }
+
+    public function test_a_live_marker_is_left_untouched_by_resolution(): void
+    {
+        // The cleanup fires only on a MISSED lookup — resolving a real user
+        // must not disturb the marker.
+        $this->guard()->login($this->provider->byUsername('ada'));
+
+        $next = $this->guard();
+        $this->assertTrue($next->check());
+        $this->assertSame(1, $this->session->get('_auth_id'));
+    }
+
+    public function test_missing_user_and_wrong_password_attempts_cost_the_same_hash_work(): void
+    {
+        // The anti-enumeration defense: a miss (no such user) burns exactly one
+        // hashing operation, the same count a wrong-password attempt spends on
+        // its verify — so operation counts can't distinguish the two.
+        $hasher = new CountingHasher($this->hasher);
+
+        $missGuard = new SessionGuard($this->session, $this->provider, $hasher);
+        $this->assertFalse($missGuard->attempt('nobody', 'whatever'));
+        $this->assertSame(1, $hasher->operations(), 'a missing user must cost exactly one hashing operation');
+
+        $hasher->reset();
+        $wrongGuard = new SessionGuard($this->session, $this->provider, $hasher);
+        $this->assertFalse($wrongGuard->attempt('ada', 'wrong'));
+        $this->assertSame(1, $hasher->operations(), 'a wrong password must cost exactly one hashing operation');
+    }
+
+    public function test_repeated_missing_user_attempts_cost_identical_work(): void
+    {
+        // Regression: the dummy hash used to be computed lazily on first use,
+        // so the FIRST miss paid hash+verify (two operations) while later
+        // misses paid one — a measurable first-call timing skew.
+        $hasher = new CountingHasher($this->hasher);
+        $guard = new SessionGuard($this->session, $this->provider, $hasher);
+
+        $guard->attempt('nobody', 'first');
+        $first = $hasher->operations();
+
+        $hasher->reset();
+        $guard->attempt('nobody', 'second');
+        $second = $hasher->operations();
+
+        $this->assertSame(1, $first, 'the first miss must not pay extra setup work');
+        $this->assertSame($first, $second, 'every miss must cost the same number of hashing operations');
+    }
+
     private function userName(?AuthenticatableInterface $user): ?string
     {
         return $user instanceof FakeUser ? $user->username : null;
+    }
+}
+
+/**
+ * Wraps the real hasher and counts the expensive operations (hash + verify) so
+ * the timing-defense tests can assert WORK EQUALITY by operation count instead
+ * of flaky wall-clock measurement.
+ */
+final class CountingHasher implements \Hydra\Auth\Contracts\HasherInterface
+{
+    public int $hashCalls = 0;
+    public int $verifyCalls = 0;
+
+    public function __construct(private readonly \Hydra\Auth\Contracts\HasherInterface $inner) {}
+
+    public function hash(string $plain): string
+    {
+        $this->hashCalls++;
+
+        return $this->inner->hash($plain);
+    }
+
+    public function verify(string $plain, string $hash): bool
+    {
+        $this->verifyCalls++;
+
+        return $this->inner->verify($plain, $hash);
+    }
+
+    public function needsRehash(string $hash): bool
+    {
+        return $this->inner->needsRehash($hash);
+    }
+
+    public function operations(): int
+    {
+        return $this->hashCalls + $this->verifyCalls;
+    }
+
+    public function reset(): void
+    {
+        $this->hashCalls = 0;
+        $this->verifyCalls = 0;
     }
 }
 

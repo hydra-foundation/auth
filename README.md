@@ -21,6 +21,18 @@ if ($guard->attempt($username, $password)) {
 }
 ```
 
+Two deliberate details of `SessionGuard`:
+
+- **Deleted users don't haunt sessions.** When the session holds an id the
+  provider no longer recognises (the account was deleted after login), the
+  guard removes the marker during that lookup — the session honestly reports
+  "guest" from then on instead of re-running a futile lookup on every request.
+  The session id is not regenerated there (it's a read path and nothing is
+  being granted); the next real `login()` rotates it as always.
+- **Failed attempts cost constant work.** `attempt()` burns exactly one hashing
+  operation whether the user is missing, passwordless, or simply typed the
+  wrong password, so response timing can't be used to enumerate accounts.
+
 ## What the app must supply
 
 `UserProviderInterface` is the one contract auth deliberately leaves unbound —

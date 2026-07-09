@@ -24,7 +24,9 @@ use Psr\EventDispatcher\EventDispatcherInterface;
  * requests), the app's {@see UserProviderInterface} (turns an id or username
  * back into a user), and the {@see HasherInterface} (verifies a password). The user is
  * resolved at most once per request and cached, so repeated user()/check()
- * calls don't re-hit the provider.
+ * calls don't re-hit the provider. A stored id the provider no longer
+ * recognises (a deleted account) is removed from the session on lookup rather
+ * than left to assert a phantom login forever — see {@see user()}.
  *
  * Both login() and logout() regenerate the session id — a privilege change must
  * not keep the pre-change session token (fixation defense), which is exactly
@@ -46,9 +48,6 @@ final class SessionGuard implements GuardInterface
     /** Per-request cache of the resolved user; $resolved distinguishes "null" from "not looked up yet". */
     private ?AuthenticatableInterface $cachedUser = null;
     private bool $resolved = false;
-
-    /** A throwaway hash for the timing defense in attempt(), computed once on demand. */
-    private ?string $dummyHash = null;
 
     public function __construct(
         private readonly SessionInterface $session,
@@ -73,8 +72,26 @@ final class SessionGuard implements GuardInterface
         $this->resolved = true;
 
         $id = $this->id();
+        if ($id === null) {
+            return $this->cachedUser = null;
+        }
 
-        return $this->cachedUser = $id === null ? null : $this->provider->byIdentifier($id);
+        $user = $this->provider->byIdentifier($id);
+
+        if ($user === null) {
+            // The marker points at a user the provider no longer knows — a
+            // deleted account. Left in place it would sit in the session
+            // forever: every request would repeat the futile lookup, and the
+            // session would keep asserting a login that can never resolve.
+            // Remove the marker so the session honestly says "guest" from here
+            // on. The session id is deliberately NOT regenerated: this is a
+            // read path (user()/check() run on ordinary page views), nothing
+            // is being granted — the session only DROPS its claim — and the
+            // next real login() rotates the id as it always does.
+            $this->session->remove(self::SESSION_KEY);
+        }
+
+        return $this->cachedUser = $user;
     }
 
     public function id(): int|string|null
@@ -96,12 +113,17 @@ final class SessionGuard implements GuardInterface
         // A missing user OR a user with no usable password must cost the same as
         // a genuine verify: otherwise response timing distinguishes "no such
         // account" and "account exists but is passwordless/disabled" from a real
-        // wrong-password attempt. Route both through a throwaway verify. (The
-        // dummy is hashed at the configured cost while a stored hash carries its
-        // own embedded cost, so the equalisation is close but not exact — the
-        // standard, accepted approximation.)
+        // wrong-password attempt. Burn exactly one hash at the configured cost —
+        // the same work verify() spends on a stored hash made at that cost, so
+        // the equalisation is close but not exact (a stored hash carries its own
+        // embedded cost): the standard, accepted approximation. Done fresh on
+        // every miss, deliberately: a lazily cached dummy hash made the FIRST
+        // miss pay hash-then-verify (two hash runs) where later misses paid one
+        // — itself a measurable skew — and precomputing it in the constructor
+        // would bill every request that merely constructs the guard (any
+        // check() on any page) a full hash.
         if ($hash === '') {
-            $this->hasher->verify($password, $this->dummyHash());
+            $this->hasher->hash($password);
             $this->events?->dispatch(new LoginFailed($username));
 
             return false;
@@ -156,10 +178,5 @@ final class SessionGuard implements GuardInterface
         $this->resolved = true;
 
         $this->events?->dispatch(new LoggedOut($id));
-    }
-
-    private function dummyHash(): string
-    {
-        return $this->dummyHash ??= $this->hasher->hash('hydrakit/auth timing defense');
     }
 }
