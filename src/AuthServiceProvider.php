@@ -14,18 +14,9 @@ use Hydra\Session\Contracts\SessionInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
- * Wires the auth package into an application.
+ * Auth service provider
  *
- * Like hydrakit/session (and unlike the stateless hydrakit/validation / hydrakit/csrf),
- * auth binds interfaces to defaults and supplies config, so it earns a provider
- * and ships its own.
- *
- * The defining trait of this package is the one binding that is deliberately
- * ABSENT: {@see UserProviderInterface} is left unbound. Auth cannot know an
- * app's user storage, so the app must bind it (typically a repository over its
- * users table) at the composition root. Until it does, resolving the guard fails
- * loudly with a container error — never a silent insecure default. That is the
- * "ship the verb, the app supplies the noun" rule made structural.
+ * Wires the auth package into an application
  */
 final class AuthServiceProvider extends ServiceProvider
 {

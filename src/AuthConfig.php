@@ -8,17 +8,7 @@ use Hydra\Core\Environment;
 use InvalidArgumentException;
 
 /**
- * Typed, immutable view of the authentication settings.
- *
- * Built once from {@see Environment} by the auth service provider, the same
- * pattern as the app's config value objects and {@see \Hydra\Session\SessionConfig}.
- *
- * It holds only what genuinely varies per environment: the bcrypt work factor.
- * That is a real deployment knob — a test suite or CI runner wants a low cost so
- * hashing is fast, while production wants it as high as the hardware tolerates.
- * The internal session key the guard stores the user id under is NOT here: it is
- * a stable protocol constant on the guard, not a deployment setting (the same
- * call hydrakit/csrf made for its field/header names).
+ * Authentication settings
  */
 final readonly class AuthConfig
 {

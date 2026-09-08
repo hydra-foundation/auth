@@ -7,14 +7,9 @@ namespace Hydra\Auth;
 use Hydra\Auth\Contracts\HasherInterface;
 
 /**
- * The production {@see HasherInterface}: PHP's native password hashing.
+ * Native hasher
  *
- * Uses PASSWORD_DEFAULT rather than pinning an algorithm, which is the
- * recommended practice — PHP advances the default over time (bcrypt today,
- * perhaps argon2 tomorrow), and {@see needsRehash()} reports when a stored hash
- * predates the current default or cost so an app that owns a write path can
- * migrate it on the user's next login. The one tuned parameter is the bcrypt
- * work factor, taken from {@see AuthConfig}.
+ * The production {@see HasherInterface}: PHP's native password hashing
  */
 final class NativeHasher implements HasherInterface
 {

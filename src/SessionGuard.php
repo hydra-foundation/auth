@@ -16,29 +16,10 @@ use Hydra\Session\Contracts\SessionInterface;
 use Psr\EventDispatcher\EventDispatcherInterface;
 
 /**
+ * Session guard
+ *
  * The session-backed {@see GuardInterface}: authentication state lives in the
- * session as a single stored identifier.
- *
- * It coordinates the three collaborators a login needs without exposing any of
- * them to controllers: the {@see SessionInterface} (where the id is kept across
- * requests), the app's {@see UserProviderInterface} (turns an id or username
- * back into a user), and the {@see HasherInterface} (verifies a password). The user is
- * resolved at most once per request and cached, so repeated user()/check()
- * calls don't re-hit the provider. A stored id the provider no longer
- * recognises (a deleted account) is removed from the session on lookup rather
- * than left to assert a phantom login forever — see {@see user()}.
- *
- * Both login() and logout() regenerate the session id — a privilege change must
- * not keep the pre-change session token (fixation defense), which is exactly
- * what {@see SessionInterface::regenerate()} is for. logout() additionally
- * clears ALL stored session data, not just the auth marker: everything written
- * during an authenticated session belongs to the user who is leaving.
- *
- * The guard also announces its lifecycle through an OPTIONAL PSR-14 dispatcher
- * ({@see Attempting}, {@see LoginFailed}, {@see LoggedIn}, {@see LoggedOut}). It
- * is nullable and dispatched with {@see null}-safe calls, so auth stays fully
- * usable with no event package bound — no dispatcher simply means no events. It
- * depends only on the psr/event-dispatcher interface, never on hydrakit/event.
+ * session as a single stored identifier
  */
 final class SessionGuard implements GuardInterface
 {

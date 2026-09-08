@@ -5,17 +5,9 @@ declare(strict_types=1);
 namespace Hydra\Auth\Contracts;
 
 /**
- * Who is authenticated for the current request, and the verbs to change that.
+ * Guard interface
  *
- * The controller-facing surface of auth. A controller injects this and asks it
- * questions (check/user/id) or drives a login flow (attempt/login/logout); it
- * never touches the session key, the user provider, or the hasher directly —
- * the guard coordinates those.
- *
- * The shipped implementation is session-backed ({@see \Hydra\Auth\SessionGuard}),
- * but binding the interface keeps the mechanism swappable: a token guard for an
- * API could be bound in its place without changing a single controller, the same
- * seam pattern as SessionInterface and ViewInterface.
+ * Who is authenticated for the current request, and the verbs to change that
  */
 interface GuardInterface
 {

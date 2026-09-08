@@ -11,18 +11,10 @@ use Hydra\Auth\Events\LoginFailed;
 use Psr\Log\LoggerInterface;
 
 /**
- * An optional listener that writes a PSR-3 line for each auth lifecycle event —
- * a ready-made security audit trail every app tends to want the same way.
+ * Log auth events listener
  *
- * It ships here (rather than being re-written in each app) so the behaviour
- * doesn't drift between consumers, but it is NOT registered by the auth provider:
- * an app opts in by binding its four handlers to the listener provider, keeping
- * the "framework ships the mechanism, the app decides to listen" rule intact.
- *
- * Levels match how a trail is read: a completed login/logout is `info`, a failed
- * attempt is `warning` (the signal worth watching), and the pre-check attempt is
- * `debug` (noise unless tracing). Only the identifier is recorded — never a
- * password, which the events never carry.
+ * An optional listener that writes a PSR-3 line for each auth lifecycle event. 
+ * A ready-made security audit trail every app tends to want the same way
  */
 final class LogAuthEventsListener
 {

@@ -5,17 +5,7 @@ declare(strict_types=1);
 namespace Hydra\Auth\Contracts;
 
 /**
- * Password hashing behind a seam.
- *
- * The guard never calls PHP's password_* functions directly — it asks a hasher.
- * That keeps every credential operation in one swappable place: the shipped
- * {@see \Hydra\Auth\NativeHasher} wraps password_hash/password_verify, but an app
- * could bind a different implementation (e.g. a pepper, a legacy-hash bridge)
- * without any controller or guard change.
- *
- * Implementations must compare in constant time and must never throw on a
- * malformed or empty stored hash — {@see verify()} returns false instead, so a
- * user row with no usable password can never be logged in.
+ * Hasher interface
  */
 interface HasherInterface
 {

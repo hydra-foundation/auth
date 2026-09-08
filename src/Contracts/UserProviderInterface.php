@@ -5,18 +5,9 @@ declare(strict_types=1);
 namespace Hydra\Auth\Contracts;
 
 /**
- * Where users come from — fulfilled by the application, not the package.
+ * User provider interface
  *
- * This is the one contract auth deliberately leaves unbound: it cannot know your
- * storage, so the app implements it (typically a repository over its users
- * table) and binds it at the composition root. A missing binding is then a loud
- * container error, never a silent insecure default.
- *
- * It does lookups ONLY. Password verification lives entirely in the guard and
- * {@see HasherInterface}, so an implementation never touches hashes or the
- * submitted password — it just finds a user (or returns null) and hands back
- * something {@see AuthenticatableInterface}. That keeps all credential handling
- * in one audited place.
+ * Where users come from (fulfilled by the application)
  */
 interface UserProviderInterface
 {

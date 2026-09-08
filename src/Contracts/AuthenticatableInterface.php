@@ -5,12 +5,9 @@ declare(strict_types=1);
 namespace Hydra\Auth\Contracts;
 
 /**
- * What a user must expose for authentication — nothing more.
+ * Authenticatable interface
  *
- * The app's own user entity implements this; auth never sees the rest of the
- * model (email, name, timestamps). Two pieces are all the guard and hasher need:
- * a stable identifier to stash in the session and restore the user by, and the
- * stored password hash to verify a login against.
+ * What a user must expose for authentication
  */
 interface AuthenticatableInterface
 {
